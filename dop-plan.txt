@@ -1,0 +1,71 @@
+Distributed Object Transfer Protocol
+
+DOTP
+
+A DOTP peer can connect to multiple other DOTP peers. Each DOTP peer uses RSA for security. This RSA key is 1024-bit, and the public exponent is always 0x10001. The public n (big-endian) is then PEM base64 encoded.
+
+Connections are via TCP using a pair of ports; one 'coordination' port and one used as a 'transfer' port. These ports are typically >32768
+
+Objects are identified by their SHA1 hashes. These are then broken down into segments, each of which has a SHA1 hash. Each segment is up to 512 KiB in length.
+
+Each peer is identified a public IP address and a coordination port.
+
+A peer will connect to any other number of peers.
+
+Messages on coordination ports are text-based and followed by a \n
+
+Peers are identified by their IP (v4 or v6), a ; sign, the coordination port number, a ; sign, the transfer port number, a ; sign and the base64 of their RSA pubkey n.
+
+On connection to the coordination port, the connector is assumed to have the RSA pubkey of the host. The connector sends, unencrypted, its own peer ID, prefixed with a 2-byte big endian int indicating the length. The host then sends, encrypted with the connector's RSA pubkey and then its own private key, the AES key and IV in that order (to a total of 40 bytes).
+
+RSA encryptions are padded with EME-OAEP padding for public->private as defined in PKCS #1 v2.0 with SHA-1, MGF1 and an empty encoding parameter, and PKCS1 padding for private->public.
+
+Messages are encrypted with the AES key, and are prefixed with a 2-byte length in big-endian format.
+
+Such messages:
+  REQUEST <object-id> <part-number>
+  This requests the transfer of an object and part. After this, wait 60 seconds for another peer to connect to the transfer port and transfer that object.
+  
+  REQUEST-FORWARD <object-id> <segment-number> <peer> <ttl>
+  This is used when a peer is asked for a file and does not have that file; the request will be forwarded to one other peer randomly. If this request is received by a peer without that object or part, it is again forwarded to another host different from the original with the ttl minus one. If this request is received with ttl = 0, it is discarded. ttl begins at 60. If handled, this message is not passed on, and the peer closes a connection to one peer if the limit is exceeded and connects to the new peer.
+  
+  OPEN
+  This is used by a peer to indicate that it can handle another connection.
+  
+  OPEN-FORWARD <peer> <ttl>
+  This is used to forward open messages, to another random peer different from the origin, with ttl - 1. ttl begins at 60. If it used to make another connection, the message can be discarded.
+  
+  REQUEST-OBJECT-ID <name>
+  This is used to request the object ID bound to a specific name. Useful for connections to specific peers.
+  
+  OBJECT-ID <name> <objid>
+  Gives the object ID for a specific object with a given name, or indicates its absence if objid is "NOT-FOUND"
+  
+  REQUEST-FULL <object-id>
+  Requests the full version of an object ID to be transferred in one go. This is only sent to trusted hosts.
+  
+  CAN-TRUST <peer>
+  Request confirmation or denial of being able to trust a given peer.
+  
+  TRUST-STATUS <peer> <yes|no>
+  Reports trustworthiness of a peer.
+  
+  XCMD <command> <line>
+  Extended command, for the use of plugins.
+  
+  BROADCAST <message>
+  Forward this message on to all peers other than the origin. Other than that, the message should be discarded.
+  
+  EXPECT <callsign> <object-id> <segment-number> <length>
+  Expect the transfer of an object on the transfer port. The callsign is a hex-encoded 64-bit random number. The segment number can be 'full' for an entire file expected.
+  
+On the transfer port, the uploader sends, unencrypted:
+  <callsign>
+The downloader then sends, unencrypted:
+  OK or NO
+If NO, the uploader disconnects.
+if OK, the uploader sends the contents of that segment, encrypted with the session key.
+
+Each peer sets a maximum number of other peers to which to maintain connections. While it has more than 5 free slots, it will periodically (eg every 20 seconds or so) send OPEN messages to a random peer.
+
+It should maintain a list of peers sorted by the time the last segment was received from that peer. When the maximum peer count is reached, it should disconnect the bottom 3 peers on that list.
