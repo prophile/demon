@@ -1,60 +1,104 @@
 #ifndef __included_libdop_h
 #define __included_libdop_h
 
-#include <stdbool.h>
-#include <inttypes.h>
-
 #ifdef __cplusplus
 extern "C"
 {
 #endif
 
-typedef struct _DOP_Session DOP_Session;
+#include <stdbool.h>
+#include <stdint.h>
 
-typedef struct _DOP_Plugin
-{
-	void (*onConnect)(DOP_Session* session, void* userdata, const char* peerID);
-	void (*onDisconnect)(DOP_Session* session, void* userdata, const char* peerID);
-	const void* (*onRequest)(DOP_Session* session, void* userdata, const char* objectID, uint64_t segmentNumber, const char* peer, uint64_t* length);
-	const void* (*onRequestFull)(DOP_Session* session, void* userdata, const char* objectID, uint64_t segmentNumber, const char* peer, uint64_t* length);
-	bool (*onReceive)(DOP_Session* session, void* userdata, const char* objectID, uint64_t segmentNumber, const char* peer, const void* data, uint64_t length);
-	bool (*onReceiveFull)(DOP_Session* session, void* userdata, const char* objectID, const char* peer, const void* data, uint64_t length);
-	bool (*onExtendedCommand)(DOP_Session* session, void* userdata, const char* command, const char* line, const char* peer);
-	void* userdata;
-} DOP_Plugin;
+typedef struct _DOP_Session DOP_Session;
 
 typedef enum _DOP_Transport
 {
-	DOP_TRANSPORT_TCP,
 	DOP_TRANSPORT_HTTP,
 	DOP_TRANSPORT_HTTPS,
+	DOP_TRANSPORT_TCP,
 	DOP_TRANSPORT_ENET
 } DOP_Transport;
 
-DOP_Session* DOP_OpenSession ( int maxPeerCount, uint16_t port, DOP_Transport transport, const void* keyData, unsigned int keyLength ); // pass 0 for the key to generate a new one.
+DOP_Session* DOP_OpenSession ( const char* clientName, DOP_Transport transport, uint16_t port, int maxClients, const void* key, unsigned keyLength );
 void DOP_CloseSession ( DOP_Session* session );
 
-void DOP_AddPlugin ( DOP_Session* session, DOP_Plugin* plugin );
-
-void DOP_Update ( DOP_Session* session );
-
-void DOP_SendExtendedCommand ( DOP_Session* session, const char* command, const char* line, const char* peer, bool broadcast ); // behaviours are as follows:
-//  if broadcast == false and peer == null, send to a peer at random
-//  if broadcast == true  and peer == null, send to all
-//  if broadcast == true  and peer != null, send to all but the given peer
-//  if broadcast == false and peer != null, send to the given peer
-
-const void* DOP_SessionKey ( DOP_Session* session, unsigned int* length );
+const void* DOP_SessionKey ( DOP_Session* session, unsigned* length );
 const char* DOP_PeerID ( DOP_Session* session );
 
-void DOP_RegisterObject ( DOP_Session* session, const char* name, const char* objectID );
-void DOP_UnregisterObject ( DOP_Session* session, const char* name );
+void DOP_Connect ( DOP_Session* session, const char* peer, bool trust, bool keep );
+void DOP_Disconnect ( DOP_Session* session, const char* peer );
 
-void DOP_Connect ( DOP_Session* session, const char* peerID, bool trust, bool keep );
-void DOP_Disconnect ( DOP_Session* session, const char* peerID );
+typedef struct _DOP_BandwidthCap
+{
+	unsigned maxUploadRate;
+	unsigned maxDownloadRate;
+} DOP_BandwidthCap;
 
-bool DOP_CanTrust ( DOP_Session* session, const char* peerID );
-const char* DOP_LookupObject ( DOP_Session* session, const char* objectName );
+DOP_BandwidthCap DOP_GetBandwidthCap ( DOP_Session* session );
+void DOP_SetBandwidthCap ( DOP_Session* session, DOP_BandwidthCap cap );
+
+typedef struct _DOP_Statistics
+{
+	unsigned uploadRate, downloadRate;
+	float sessionRatio;
+	unsigned totalUpload, totalDownload;
+} DOP_Statistics;
+
+DOP_Statistics DOP_GetStatistics ( DOP_Session* session );
+
+typedef struct _DOP_Object
+{
+	uint64_t length;
+	uint64_t pieceCount; // if left at 0, DOP_RegisterObject will convert to ceil(length / 512)
+	const char** pieceHashes; // entirely down to the callbacks to deal with, and often left at NULL; if not, must point to an array of SHA1 hashes of pieces.
+	void* userdata;
+	bool (*providePieceCallback)(struct _DOP_Object* object, void* userdata, uint64_t pieceID, void** buffer, uint64_t* length); // buffer must point to newly malloc'd memory
+	bool (*havePieceCallback)(struct _DOP_Object* object, void* userdata, uint64_t pieceID);
+	bool (*receivePieceCallback)(struct _DOP_Object* object, void* userdata, uint64_t pieceID, const void* buffer, uint64_t length);
+	uint64_t (*pickPieceCallback)(struct _DOP_Object* object, void* userdata); // return DOP_OBJECT_COMPLETE if all pieces are had
+	void (*deleteObjectCallback)(struct _DOP_Object* object, void* userdata);
+	char hash[41]; // read-only
+	bool shouldUpload, shouldDownload;
+	bool isPurgeable; // if this is true, can be deleted at will by the object
+	// internal
+	uint64_t lastUseTime;
+} DOP_Object;
+
+#define DOP_OBJECT_COMPLETE (~(uint64_t)0)
+
+const char* DOP_GenerateSHA1 ( const void* buffer, uint64_t length );
+const char* DOP_GenerateSHA1File ( const char* path );
+
+DOP_Object* DOP_NewObject ( const char* hash ); // a completely blank object, except for the hash
+DOP_Object* DOP_NewObjectMemoryDownload ( const char* objectID, void* buffer, uint64_t length );
+DOP_Object* DOP_NewObjectMemoryUpload ( const void* buffer, uint64_t length );
+DOP_Object* DOP_NewObjectFile ( const char* path, const char* objectID, uint64_t length );
+DOP_Object* DOP_NewObjectEmpty ();
+void DOP_DeleteObject ( DOP_Object* object );
+
+void DOP_RegisterObject ( DOP_Session* session, DOP_Object* object );
+void DOP_UnregisterObject ( DOP_Session* session, DOP_Object* object );
+
+void DOP_BindName ( DOP_Session* session, const char* name, DOP_Object* object );
+const char* DOP_LookupName ( DOP_Session* session, uint64_t* length );
+
+typedef bool (*DOP_PluginCallback)(DOP_Session* session, void* userdata, const char* peerName, unsigned pluginCommand, const char* key, const void* data);
+
+void DOP_RegisterPlugin ( DOP_Session* session, DOP_PluginCallback callback, void* userdata, const char** handledCommands );
+void DOP_UnregisterPlugin ( DOP_Session* session, DOP_PluginCallback callback, void* userdata );
+
+typedef DOP_Object* (*DOP_ObjectProvider)(DOP_Session* session, void* userdata, const char* objectID);
+
+void DOP_RegisterObjectProvider ( DOP_Session* session, DOP_ObjectProvider provider, void* userdata );
+void DOP_UnregisterObjectProvider ( DOP_Session* session, DOP_ObjectProvider provider, void* userdata );
+
+void DOP_SendExtendedCommand ( DOP_Session* session, const char* command, const char* line, const char* peer, bool broadcast );
+
+#define DOP_PLUGIN_CONNECTED 0
+#define DOP_PLUGIN_DISCONNECTED 1
+#define DOP_PLUGIN_REGISTERED 2
+#define DOP_PLUGIN_UNREGISTERED 3
+#define DOP_PLUGIN_RECEIVED_EXTENDED_COMMAND 4
 
 #ifdef __cplusplus
 }
