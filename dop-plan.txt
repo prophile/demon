@@ -54,12 +54,8 @@ Such messages:
   EXPECT <callsign> <object-id> <segment-number> <length>
   Expect the transfer of an object on the channel 1. The callsign is a hex-encoded 64-bit random number. The segment number can be 'full' for an entire file expected.
   
-On channel 1, the uploader sends, unencrypted:
-  <callsign, as 8 bytes big-endian>
-The downloader then sends, unencrypted:
-  OK or NO
-If NO, the uploader does nothing.
-if OK, the uploader sends the contents of that segment, encrypted with the session key.
+On channel 1, the uploader sends, encrypted with the session key:
+  <callsign, as 8 bytes big-endian>, followed by the contents of that segment
 
 Each peer sets a maximum number of other peers to which to maintain connections. While it has more than 5 free slots, it will periodically (eg every 20 seconds or so) send OPEN messages to a random peer.
 
