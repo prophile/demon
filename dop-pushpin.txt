@@ -1,0 +1,16 @@
+DOP usage within distributed Pushpin
+
+To detect peers, each peer occasionally broadcasts a UDP packet on port 65433 containing "PUSHPIN-PEER <peer id>." All hosts are assumed trusted.
+
+Each maintains a file named 'BOARDLIST'. This object contains board states listed in the following form:
+<sha1> <length> <timestamp> <name>\n
+
+If the timestamp is older than the current, the new board is requested. If the timestamp is equal to the current, do nothing. If the timestamp is greater than the current, send the XCMD PUSHPIN UPDATE <timestamp> <boardname> <sha1> which will instruct the receiver to download the new board and delete the old once that's confirmed. When that message is received, the peer will broadcast that same message to all to which it is connected unless it has that or a newer version of the board. The board contents are in the following format:
+
+<sha1> <length> (D:<digest-sha1> <length>) <content-type> <x> <y> <name>\n
+
+Any time the board is updated, an XCMD PUSHPIN UPDATE will be sent out.
+
+The D: section is optional, but if present indicates the sha1 of a file containing a sequence of sha1s for pieces of the main file. This is present for files of a length > 60MiB. This file is simply a sequence of 20-byte binary SHA1s.
+
+A "message" is indicated by an XCMD PUSHPIN NOTE <timestamp> <sha1> <length> which should be re-broadcast if that sha1 and timestamp have not already been received. This contains an HTML fragment with the message content.

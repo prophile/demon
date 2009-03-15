@@ -4,27 +4,25 @@ DOTP
 
 A DOTP peer can connect to multiple other DOTP peers. Each DOTP peer uses RSA for security. This RSA key is 1024-bit, and the public exponent is always 0x10001. The public n (big-endian) is then PEM base64 encoded.
 
-Connections are via TCP using a pair of ports; one 'coordination' port and one used as a 'transfer' port. These ports are typically >32768
+Connections are via a transport mechanism (described below) using a single port, which may be any port number.
 
 Objects are identified by their SHA1 hashes. These are then broken down into segments, each of which has a SHA1 hash. Each segment is up to 512 KiB in length.
 
-Each peer is identified a public IP address and a coordination port.
-
 A peer will connect to any other number of peers.
 
-Messages on coordination ports are text-based and followed by a \n
+Messages on channel 0 are sent as individual packets on the transport layer.
 
-Peers are identified by their IP (v4 or v6), a ; sign, the coordination port number, a ; sign, the transfer port number, a ; sign and the base64 of their RSA pubkey n.
+Peers are identified by their IP (v4 or v6), a ; sign, the port number, a ; sign, the name of the transport layer in use, a ; sign and the base64 of their RSA pubkey n.
 
-On connection to the coordination port, the connector is assumed to have the RSA pubkey of the host. The connector sends, unencrypted, its own peer ID, prefixed with a 2-byte big endian int indicating the length. The host then sends, encrypted with the connector's RSA pubkey and then its own private key, the AES key and IV in that order (to a total of 40 bytes).
+On connection to a peer, the connector is assumed to have the RSA pubkey of the host. The connector sends, unencrypted, its own peer ID, prefixed with a 2-byte big endian int indicating the length. The host then sends, encrypted with the connector's RSA pubkey and then its own private key, the AES key and IV in that order (to a total of 40 bytes). This all occurs on channel 0 of the transport.
 
 RSA encryptions are padded with EME-OAEP padding for public->private as defined in PKCS #1 v2.0 with SHA-1, MGF1 and an empty encoding parameter, and PKCS1 padding for private->public.
 
-Messages are encrypted with the AES key, and are prefixed with a 2-byte length in big-endian format.
+Messages are encrypted with the AES key, and are prefixed with a 2-byte length in big-endian format. All such messages are sent on channel 0.
 
 Such messages:
   REQUEST <object-id> <part-number>
-  This requests the transfer of an object and part. After this, wait 60 seconds for another peer to connect to the transfer port and transfer that object.
+  This requests the transfer of an object and part.
   
   REQUEST-FORWARD <object-id> <segment-number> <peer> <ttl>
   This is used when a peer is asked for a file and does not have that file; the request will be forwarded to one other peer randomly. If this request is received by a peer without that object or part, it is again forwarded to another host different from the original with the ttl minus one. If this request is received with ttl = 0, it is discarded. ttl begins at 60. If handled, this message is not passed on, and the peer closes a connection to one peer if the limit is exceeded and connects to the new peer.
@@ -38,8 +36,8 @@ Such messages:
   REQUEST-OBJECT-ID <name>
   This is used to request the object ID bound to a specific name. Useful for connections to specific peers.
   
-  OBJECT-ID <name> <objid>
-  Gives the object ID for a specific object with a given name, or indicates its absence if objid is "NOT-FOUND"
+  OBJECT-ID <name> <objid> <length>
+  Gives the object ID for a specific object with a given name, or indicates its absence if objid is "NOT-FOUND" and length is "0"
   
   REQUEST-FULL <object-id>
   Requests the full version of an object ID to be transferred in one go. This is only sent to trusted hosts.
@@ -53,19 +51,33 @@ Such messages:
   XCMD <command> <line>
   Extended command, for the use of plugins.
   
-  BROADCAST <message>
-  Forward this message on to all peers other than the origin. Other than that, the message should be discarded.
-  
   EXPECT <callsign> <object-id> <segment-number> <length>
-  Expect the transfer of an object on the transfer port. The callsign is a hex-encoded 64-bit random number. The segment number can be 'full' for an entire file expected.
+  Expect the transfer of an object on the channel 1. The callsign is a hex-encoded 64-bit random number. The segment number can be 'full' for an entire file expected.
   
-On the transfer port, the uploader sends, unencrypted:
-  <callsign>
+On channel 1, the uploader sends, unencrypted:
+  <callsign, as 8 bytes big-endian>
 The downloader then sends, unencrypted:
   OK or NO
-If NO, the uploader disconnects.
+If NO, the uploader does nothing.
 if OK, the uploader sends the contents of that segment, encrypted with the session key.
 
 Each peer sets a maximum number of other peers to which to maintain connections. While it has more than 5 free slots, it will periodically (eg every 20 seconds or so) send OPEN messages to a random peer.
 
 It should maintain a list of peers sorted by the time the last segment was received from that peer. When the maximum peer count is reached, it should disconnect the bottom 3 peers on that list.
+
+The specification defines four available transports, which are required, but others may be specified. All transports must have the following properties:
+  Data are sent in packets, which are guaranteed to arrive without corruption via checksums or other equivalent methods. These packets are atomic, and may be any size: it is the job of the transport to split these into smaller pieces if needed.
+  Data are sent on one of two channels, which may be queued independently; these are identified as channels 0 and 1.
+  Data are sequenced: all messages on any channel must be processed after all previous messages on that channel.
+  Data are sent either reliably or unreliably. Unreliable messages may be reliable, but reliable messages are guaranteed to arrive. At present, unreliable messages are never used.
+
+The transports are defined as follows:
+
+(1) tcp
+  This is a basic TCP connection between two hosts. Packets are encoded prefixed with a 4-byte length in big-endian byte order, with the bit 0x80000000 indicating channel 1 as opposed to channel 0. Channels 0 and 1 are not independently sequenced and all messages are reliable.
+(2) http
+  This means connections over http. Requests are done on the path /dop/comms using the POST method. The header DOP-Channel: (0|1) must be specified. Requests must be repeated until a response is made. A zero-sized reply is expected.
+(3) https
+  As for http, but with the caveat that the communications are under SSL.
+(4) enet
+  Using the enet specification, ordered reliable and sequenced unreliable are the two expected values, all other analogues are obvious.

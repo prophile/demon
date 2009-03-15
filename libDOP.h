@@ -23,7 +23,15 @@ typedef struct _DOP_Plugin
 	void* userdata;
 } DOP_Plugin;
 
-DOP_Session* DOP_OpenSession ( int maxPeerCount, uint16_t coordinationPort, uint16_t transferPort, const void* keyData, unsigned int keyLength ); // pass 0 for the key to generate a new one.
+typedef enum _DOP_Transport
+{
+	DOP_TRANSPORT_TCP,
+	DOP_TRANSPORT_HTTP,
+	DOP_TRANSPORT_HTTPS,
+	DOP_TRANSPORT_ENET
+} DOP_Transport;
+
+DOP_Session* DOP_OpenSession ( int maxPeerCount, uint16_t port, DOP_Transport transport, const void* keyData, unsigned int keyLength ); // pass 0 for the key to generate a new one.
 void DOP_CloseSession ( DOP_Session* session );
 
 void DOP_AddPlugin ( DOP_Session* session, DOP_Plugin* plugin );
