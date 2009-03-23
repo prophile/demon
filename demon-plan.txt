@@ -1,8 +1,6 @@
-Distributed Object Transfer Protocol
+DEMON
 
-DOTP
-
-A DOTP peer can connect to multiple other DOTP peers. Each DOTP peer uses RSA for security. This RSA key is typically 1024-bit but can be any length >= 1024, and the public exponent is always 0x10001. The public n (big-endian) is then PEM base64 encoded.
+A DEMON peer can connect to multiple other DEMON peers. Each DEMON peer uses RSA for security. This RSA key is typically 1024-bit but can be any length >= 1024, and the public exponent is always 0x10001. The public n (big-endian) is then PEM base64 encoded.
 
 Connections are via a transport mechanism (described below) using a single port, which may be any port number.
 
@@ -80,7 +78,7 @@ The transports are defined as follows:
 (1) tcp
   This is a basic TCP connection between two hosts. Packets are encoded prefixed with a 4-byte length in big-endian byte order, with the bit 0x80000000 indicating channel 1 as opposed to channel 0. Channels 0 and 1 are not independently sequenced and all messages are reliable.
 (2) http
-  This means connections over http. Requests are done on the path /dop/comms using the POST method. The header DOP-Channel: (0|1) must be specified. Requests must be repeated until a response is made. A zero-sized reply is expected.
+  This means connections over http. Requests are done on the path /demon/comms using the POST method. The header DEMON-Channel: (0|1) must be specified. Requests must be repeated until a response is made. A zero-sized reply is expected.
 (3) https
   As for http, but with the caveat that the communications are under SSL.
 (4) udp

@@ -1,4 +1,4 @@
-DOP usage within distributed Pushpin
+DEMON usage within distributed Pushpin
 
 To detect peers, each peer occasionally broadcasts a UDP packet on port 65433 containing "PUSHPIN-PEER <peer id>." All hosts are assumed trusted.
 
