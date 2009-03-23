@@ -22,6 +22,9 @@ typedef enum _DOP_Transport
 DOP_Session* DOP_OpenSession ( const char* clientName, DOP_Transport transport, uint16_t port, int maxClients, const void* key, unsigned keyLength );
 void DOP_CloseSession ( DOP_Session* session );
 
+void DOP_LoadTrustDB ( DOP_Session* session, const void* db, uint64_t length );
+void* DOP_SaveTrustDB ( DOP_Session* session, uint64_t* length ); // this returns a new pointer
+
 const void* DOP_SessionKey ( DOP_Session* session, unsigned* length );
 const char* DOP_PeerID ( DOP_Session* session );
 
@@ -50,14 +53,14 @@ typedef struct _DOP_Object
 {
 	uint64_t length;
 	uint64_t pieceCount; // if left at 0, DOP_RegisterObject will convert to ceil(length / 512)
-	const char** pieceHashes; // entirely down to the callbacks to deal with, and often left at NULL; if not, must point to an array of SHA1 hashes of pieces.
+	const char** pieceHashes; // often left at NULL; if not, must point to an array of SHA1 hashes of pieces.
 	void* userdata;
 	bool (*providePieceCallback)(struct _DOP_Object* object, void* userdata, uint64_t pieceID, void** buffer, uint64_t* length); // buffer must point to newly malloc'd memory
 	bool (*havePieceCallback)(struct _DOP_Object* object, void* userdata, uint64_t pieceID);
 	bool (*receivePieceCallback)(struct _DOP_Object* object, void* userdata, uint64_t pieceID, const void* buffer, uint64_t length);
 	uint64_t (*pickPieceCallback)(struct _DOP_Object* object, void* userdata); // return DOP_OBJECT_COMPLETE if all pieces are had
 	void (*deleteObjectCallback)(struct _DOP_Object* object, void* userdata);
-	char hash[41]; // read-only
+	char hash[49]; // read-only
 	bool shouldUpload, shouldDownload;
 	bool isPurgeable; // if this is true, can be deleted at will by the object
 	// internal
@@ -66,8 +69,8 @@ typedef struct _DOP_Object
 
 #define DOP_OBJECT_COMPLETE (~(uint64_t)0)
 
-const char* DOP_GenerateSHA1 ( const void* buffer, uint64_t length );
-const char* DOP_GenerateSHA1File ( const char* path );
+const char* DOP_GenerateTiger ( const void* buffer, uint64_t length );
+const char* DOP_GenerateTigerFile ( const char* path );
 
 DOP_Object* DOP_NewObject ( const char* hash ); // a completely blank object, except for the hash
 DOP_Object* DOP_NewObjectMemoryDownload ( const char* objectID, void* buffer, uint64_t length );

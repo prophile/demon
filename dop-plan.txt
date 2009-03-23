@@ -2,11 +2,11 @@ Distributed Object Transfer Protocol
 
 DOTP
 
-A DOTP peer can connect to multiple other DOTP peers. Each DOTP peer uses RSA for security. This RSA key is 1024-bit, and the public exponent is always 0x10001. The public n (big-endian) is then PEM base64 encoded.
+A DOTP peer can connect to multiple other DOTP peers. Each DOTP peer uses RSA for security. This RSA key is typically 1024-bit but can be any length >= 1024, and the public exponent is always 0x10001. The public n (big-endian) is then PEM base64 encoded.
 
 Connections are via a transport mechanism (described below) using a single port, which may be any port number.
 
-Objects are identified by their SHA1 hashes. These are then broken down into segments, each of which has a SHA1 hash. Each segment is up to 512 KiB in length.
+Objects are identified by their Tiger hashes. These are then broken down into segments, each of which has a Tiger hash. Each segment is up to 512 KiB in length.
 
 A peer will connect to any other number of peers.
 
@@ -14,9 +14,11 @@ Messages on channel 0 are sent as individual packets on the transport layer.
 
 Peers are identified by their IP (v4 or v6), a ; sign, the port number, a ; sign, the name of the transport layer in use, a ; sign and the base64 of their RSA pubkey n.
 
-On connection to a peer, the connector is assumed to have the RSA pubkey of the host. The connector sends, unencrypted, its own peer ID, prefixed with a 2-byte big endian int indicating the length. The host then sends, encrypted with the connector's RSA pubkey and then its own private key, the AES key and IV in that order (to a total of 40 bytes). This all occurs on channel 0 of the transport.
+On connection to a peer, the connector is assumed to have the RSA pubkey of the host. The connector sends, encrypted with the host's pubkey, its own peer ID, prefixed with a 2-byte big endian int indicating the length. The host then sends, encrypted with the connector's RSA pubkey and then its own private key, the AES-256 key and IV in that order (to a total of 48 bytes). This all occurs on channel 0 of the transport.
 
-RSA encryptions are padded with EME-OAEP padding for public->private as defined in PKCS #1 v2.0 with SHA-1, MGF1 and an empty encoding parameter, and PKCS1 padding for private->public.
+RSA encryptions are padded with EME-OAEP padding for public->private as defined in PKCS #1 v2.0 with SHA1, MGF1 and an empty encoding parameter, and PKCS1 padding for private->public.
+
+Peers may be 'trusted' or 'untrusted,' trust will spread through the trust-sharing mechanism. Trusted peers should be stored in a DB on the user's system. Trust can be suggested by trackers.
 
 Messages are encrypted with the AES key, and are prefixed with a 2-byte length in big-endian format. All such messages are sent on channel 0.
 
@@ -33,11 +35,14 @@ Such messages:
   OPEN-FORWARD <peer> <ttl>
   This is used to forward open messages, to another random peer different from the origin, with ttl - 1. ttl begins at 60. If it used to make another connection, the message can be discarded.
   
-  REQUEST-OBJECT-ID <name>
-  This is used to request the object ID bound to a specific name. Useful for connections to specific peers.
+  DHTDB-PUT <keyhash> <timestamp> <object-id> <length>
+  DHT database PUT operation. If there are any peers where the difference between the Tiger hash of their Peer ID and keyhash is less than that same distance for the receiver, forward to them; otherwise, keep. The key and value are stored in a local database. This is discarded if a keyhash is already received for a newer or equal timestamp. This is sent only between trusted peers.
   
-  OBJECT-ID <name> <objid> <length>
-  Gives the object ID for a specific object with a given name, or indicates its absence if objid is "NOT-FOUND" and length is "0"
+  DHTDB-GET <keyhash>
+  DHT database GET operation. This is sent by a peer to a *closer* peer to that keyhash, as a request for the value of a keyhash. This is sent only between trusted peers.
+  
+  DHTDB-VALUE <keyhash> <timestamp> <object-id> <length>
+  DHT database reply of GET operation. Sent back along the chain. This is sent only between trusted peers.
   
   REQUEST-FULL <object-id>
   Requests the full version of an object ID to be transferred in one go. This is only sent to trusted hosts.
@@ -47,6 +52,9 @@ Such messages:
   
   TRUST-STATUS <peer> <yes|no>
   Reports trustworthiness of a peer.
+  
+  TRUST-REVOKE <peer>
+  Revokes trust of a given peer ID. This should be sent to all peers other than the sender, unless trust does not already exist for the given peer. If received, the receiver MAY disconnect from that peer if it is connected directly.
   
   XCMD <command> <line>
   Extended command, for the use of plugins.
@@ -75,5 +83,16 @@ The transports are defined as follows:
   This means connections over http. Requests are done on the path /dop/comms using the POST method. The header DOP-Channel: (0|1) must be specified. Requests must be repeated until a response is made. A zero-sized reply is expected.
 (3) https
   As for http, but with the caveat that the communications are under SSL.
-(4) enet
-  Using the enet specification, ordered reliable and sequenced unreliable are the two expected values, all other analogues are obvious.
+(4) udp
+  This is assumed to be the default. Packets should begin with a 16-byte header, in big-endian byte order, with the following structure:
+  +---------------+-------+-------+
+  | Message ID    | Flags | Chan  |
+  |-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+  | | | | | | | | | | | | | | | | |
+  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+  The message ID should be monotonically increasing, but separate counters for reliable and unreliable messages, and for the different channels. The channel indicates the ordering channel. Flags are as follows:
+    0x00000001 Reliable - please send back an acknowledgement of this message
+    0x00000002 Acknowledge - the contents contains a message ID of a previous message, acknowledging
+  If no ACK is received, resending is done after a short period of time.
+  If a reliable message is received and not all previous message IDs have been received, wait for previous messages before handling.
+  If an unreliable message is received and a later message ID has already been received, discard.

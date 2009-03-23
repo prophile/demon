@@ -15,7 +15,7 @@
 @end
 
 @interface NSData(Hashing)
-- (NSData*)sha1;
+- (NSData*)tiger;
 @end
 
 @interface RSAKey : NSObject
@@ -36,9 +36,9 @@
 - (NSData*)privateEncrypt:(NSData*)source;
 @end
 
-@interface AES192Key : NSObject
+@interface AES256Key : NSObject
 {
-	unsigned char key[24];
+	unsigned char key[32];
 	unsigned char iv[16];
 }
 - (id)initWithKey:(NSData*)key initialisationVector:(NSData*)iv;

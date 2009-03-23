@@ -6,6 +6,7 @@
 #import <openssl/bio.h>
 #import <openssl/buffer.h>
 #import <openssl/rand.h>
+#import "tiger.h"
 
 static char* tobase64 (const unsigned char* input, int length, int* outputLength)
 {
@@ -159,6 +160,15 @@ static char hex2bits ( unsigned char hex )
 		newBytes[i/2] |= hex2bits(bytes[i+1]);
 	}
 	return [NSData dataWithBytesNoCopy:newBytes length:(length/2) freeWhenDone:YES];
+}
+@end
+
+@implementation NSData(Hashing)
+- (NSData*)tiger
+{
+	char bytes[24];
+	Tiger([self data], [self length], bytes);
+	return [NSData dataWithBytes:bytes length:24];
 }
 @end
 
@@ -326,16 +336,16 @@ static inline NSUInteger umin ( NSUInteger a, NSUInteger b )
 }
 @end
 
-@implementation AES192Key
+@implementation AES256Key
 
 - (id)initWithKey:(NSData*)_key initialisationVector:(NSData*)_iv
 {
-	NSAssert([_key length] == 24, @"Bad key length");
+	NSAssert([_key length] == 32, @"Bad key length");
 	NSAssert([_iv length] == 16, @"Bad IV length");
 	id s = [super init];
 	if (s == self)
 	{
-		memcpy(key, [_key bytes], 24);
+		memcpy(key, [_key bytes], 32);
 		memcpy(iv, [_iv bytes], 16);
 	}
 	return s;
@@ -343,14 +353,14 @@ static inline NSUInteger umin ( NSUInteger a, NSUInteger b )
 
 - (id)initWithRandomKeyAndInitialisationVector
 {
-	NSData* localKey = [NSData randomDataWithLength:24];
+	NSData* localKey = [NSData randomDataWithLength:32];
 	NSData* localIV = [NSData randomDataWithLength:16];
 	return [self initWithKey:localKey initialisationVector:localIV];
 }
 
 - (NSData*)key
 {
-	return [NSData dataWithBytesNoCopy:key length:24 freeWhenDone:NO];
+	return [NSData dataWithBytesNoCopy:key length:32 freeWhenDone:NO];
 }
 
 - (NSData*)initialisationVector
@@ -361,7 +371,7 @@ static inline NSUInteger umin ( NSUInteger a, NSUInteger b )
 - (NSData*)encrypt:(NSData*)source
 {
 	EVP_CIPHER_CTX ctx;
-	EVP_EncryptInit(&ctx, EVP_aes_192_cbc(), key, iv);
+	EVP_EncryptInit(&ctx, EVP_aes_256_cbc(), key, iv);
 	unsigned char* resultData = (unsigned char*)malloc([source length] * 2);
 	int resultLength;
 	EVP_EncryptFinal(&ctx, resultData, &resultLength);
@@ -372,7 +382,7 @@ static inline NSUInteger umin ( NSUInteger a, NSUInteger b )
 - (NSData*)decrypt:(NSData*)source
 {
 	EVP_CIPHER_CTX ctx;
-	EVP_DecryptInit(&ctx, EVP_aes_192_cbc(), key, iv);
+	EVP_DecryptInit(&ctx, EVP_aes_256_cbc(), key, iv);
 	unsigned char* resultData = (unsigned char*)malloc([source length]);
 	int resultLength;
 	EVP_DecryptFinal(&ctx, resultData, &resultLength);
